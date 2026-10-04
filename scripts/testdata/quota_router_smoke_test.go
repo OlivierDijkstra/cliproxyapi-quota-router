@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -107,7 +108,7 @@ func smokeAuthManager(t *testing.T, claudeURL string, claude map[string]string, 
 const claudeSmokeModel = "claude-sonnet-5-5"
 
 // fakeAnthropic answers /v1/messages with the unified rate-limit headers of a
-// Claude subscription account, chosen by the x-api-key the executor sends, and
+// Claude subscription account, chosen by the API key the executor sends, and
 // counts the requests each key received.
 type fakeAnthropic struct {
 	mu     sync.Mutex
@@ -116,7 +117,12 @@ type fakeAnthropic struct {
 }
 
 func (f *fakeAnthropic) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// The executor sends x-api-key only to api.anthropic.com and a bearer token
+	// to any other base URL.
 	key := r.Header.Get("X-Api-Key")
+	if key == "" {
+		key = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	}
 	f.mu.Lock()
 	f.hits[key]++
 	util, ok := f.limits[key]
