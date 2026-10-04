@@ -1,0 +1,130 @@
+# Builds the plugin for every platform the CLIProxyAPI loader supports, then
+# loads the Linux and macOS libraries through CLIProxyAPI's own plugin host.
+# Called by ci.yml on every push and pull request and by release.yml on tags,
+# so releases use exactly the build path CI already exercised.
+name: build
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Plugin version embedded in the library (empty for CI builds)
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.26.8"
+
+jobs:
+  build:
+    name: ${{ matrix.goos }}-${{ matrix.goarch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux builds run in manylinux2014 so the library needs only glibc 2.17,
+          # matching the plugin-capable CLIProxyAPI Linux release.
+          - { goos: linux, goarch: amd64, runner: ubuntu-24.04, builder: manylinux, image: quay.io/pypa/manylinux2014_x86_64 }
+          - { goos: linux, goarch: arm64, runner: ubuntu-24.04-arm, builder: manylinux, image: quay.io/pypa/manylinux2014_aarch64 }
+          - { goos: darwin, goarch: arm64, runner: macos-15, builder: native }
+          - { goos: darwin, goarch: amd64, runner: macos-15-intel, builder: native }
+          - { goos: windows, goarch: amd64, runner: windows-2025, builder: native }
+          - { goos: windows, goarch: arm64, runner: windows-11-arm, builder: msys2 }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Build (native)
+        if: matrix.builder == 'native'
+        run: bash scripts/build-plugin.sh "out/${{ matrix.goos }}-${{ matrix.goarch }}" "${{ inputs.version }}"
+
+      - name: Build (manylinux2014)
+        if: matrix.builder == 'manylinux'
+        env:
+          IMAGE: ${{ matrix.image }}
+          VERSION: ${{ inputs.version }}
+          PLATFORM: ${{ matrix.goos }}-${{ matrix.goarch }}
+        run: |
+          # The Go toolchain is statically linked, so the runner's copy works in the container.
+          docker run --rm \
+            -v "$PWD:/src" -w /src \
+            -v "$(go env GOROOT):/usr/local/go:ro" \
+            -e VERSION -e PLATFORM \
+            -e GOCACHE=/tmp/gocache -e GOMODCACHE=/tmp/gomod -e GOTOOLCHAIN=local \
+            "$IMAGE" bash -euo pipefail -c '
+              export PATH=/usr/local/go/bin:$PATH
+              lib=$(bash scripts/build-plugin.sh "out/$PLATFORM" "$VERSION")
+              max=$(readelf --version-info "$lib" | sed -n "s/.*Name: GLIBC_\([0-9.]*\).*/\1/p" | sort -Vu | tail -n 1)
+              echo "highest GLIBC symbol version: ${max:-none}"
+              if [[ -n "$max" && "$(printf "2.17\n%s\n" "$max" | sort -V | tail -n 1)" != "2.17" ]]; then
+                echo "library requires GLIBC_$max, expected 2.17 or older" >&2
+                exit 1
+              fi
+              chown -R "$(stat -c %u:%g /src)" out
+            '
+
+      - name: Set up MSYS2 clang (windows/arm64)
+        if: matrix.builder == 'msys2'
+        uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2.33.0
+        with:
+          msystem: CLANGARM64
+          path-type: inherit
+          install: mingw-w64-clang-aarch64-clang
+
+      - name: Build (windows/arm64)
+        if: matrix.builder == 'msys2'
+        shell: msys2 {0}
+        env:
+          CC: clang
+        run: bash scripts/build-plugin.sh "out/${{ matrix.goos }}-${{ matrix.goarch }}" "${{ inputs.version }}"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: lib-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: out/${{ matrix.goos }}-${{ matrix.goarch }}/cliproxyapi-quota-router.*
+          if-no-files-found: error
+          retention-days: 7
+
+  # Loads the built library with the upstream host loader (dlopen,
+  # cliproxy_plugin_init, the C call table, host callbacks and shutdown) at the
+  # CLIProxyAPI version pinned in go.mod. Pure-Go tests cannot cover the C ABI.
+  host-smoke:
+    name: host-smoke ${{ matrix.platform }}
+    needs: build
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: linux-amd64, runner: ubuntu-24.04, ext: so }
+          - { platform: linux-arm64, runner: ubuntu-24.04-arm, ext: so }
+          - { platform: darwin-arm64, runner: macos-15, ext: dylib }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: lib-${{ matrix.platform }}
+          path: lib
+
+      - name: Check out CLIProxyAPI at the go.mod version
+        run: |
+          version=$(go list -m -f '{{.Version}}' github.com/router-for-me/CLIProxyAPI/v8)
+          git clone --quiet --depth 1 --branch "$version" https://github.com/router-for-me/CLIProxyAPI.git "$RUNNER_TEMP/cliproxyapi"
+
+      - name: Load the plugin through the host
+        run: bash scripts/host-smoke.sh "lib/cliproxyapi-quota-router.${{ matrix.ext }}" "$RUNNER_TEMP/cliproxyapi"

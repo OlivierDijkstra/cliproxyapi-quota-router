@@ -1,0 +1,45 @@
+# Merge this into your CLIProxyAPI config.yaml.
+# The key under plugins.configs must match the plugin ID, which the host takes
+# from the library file name (cliproxyapi-quota-router.so/.dylib/.dll).
+plugins:
+  enabled: true
+  dir: "plugins"
+  configs:
+    cliproxyapi-quota-router:
+      enabled: true
+      priority: 10
+
+      # smart | headroom. expiring-first is another name for smart.
+      mode: smart
+      # Skip a credential while any window has less than 2% left. A window at 0%
+      # is skipped even when this is 0.
+      minimum_headroom: 0.02
+      # Used when quota data cannot rank the candidates: round-robin | fill-first | none.
+      # none leaves the pick to the host only while no candidate is skipped.
+      fallback: round-robin
+
+      # How often to re-read host auth state (disabled flags, retry times).
+      refresh_interval: 5m
+      # A credential with any quota window older than this is refreshed by routing
+      # one request to it.
+      stale_after: 30m
+      # Minimum gap between two probe picks of the same credential.
+      probe_interval: 1m
+      # Resets closer than this are scored as if they were this far away.
+      min_reset_horizon: 1h
+
+      # Stay on the current credential unless another scores 15% higher.
+      switch_margin: 0.15
+      # Scores within 5% of the best count as a tie.
+      tie_tolerance: 0.05
+
+      session_affinity: true
+      session_affinity_ttl: 1h
+
+      # true: rank candidates from every priority tier, not only the highest.
+      across_priorities: false
+
+      log_decisions: false
+      # Auth IDs are often file names containing e-mail addresses. Diagnostics
+      # show a hash unless this is enabled.
+      reveal_auth_ids: false
