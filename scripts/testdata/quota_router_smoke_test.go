@@ -89,11 +89,14 @@ func smokeAuthManager(t *testing.T, claudeURL string, claude map[string]string, 
 	}
 	reg := registry.GetGlobalRegistry()
 	for id, key := range claude {
+		// host.auth.list only reports auths backed by a file, as Claude OAuth
+		// logins are, so give these a path like one.
 		register(&coreauth.Auth{
 			ID:         id,
 			Provider:   "claude",
+			FileName:   id + ".json",
 			Status:     coreauth.StatusActive,
-			Attributes: map[string]string{"api_key": key, "base_url": claudeURL},
+			Attributes: map[string]string{"api_key": key, "base_url": claudeURL, "path": "/nonexistent/" + id + ".json"},
 		})
 		reg.RegisterClient(id, "claude", []*registry.ModelInfo{{ID: claudeSmokeModel}})
 		t.Cleanup(func() { reg.UnregisterClient(id) })

@@ -36,11 +36,20 @@ func TestRefreshAppliesHostStateAndPrunes(t *testing.T) {
 		{ID: "b", Disabled: true},
 		{ID: "c", NextRetryAfter: t0.Add(time.Hour)},
 	}}
+	lister.entries = append(lister.entries, pluginapi.HostAuthFileEntry{ID: "gone"})
 	r, _ := newTestRouter(WithAuthLister(lister))
-	observe(r, "a", 50, time.Hour)
-	observe(r, "gone", 50, time.Hour)
 	if err := r.Refresh(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+	observe(r, "a", 50, time.Hour)
+	observe(r, "gone", 50, time.Hour)
+	observe(r, "config-key", 50, time.Hour) // never listed, like a claude-api-key entry
+	lister.entries = lister.entries[:3]
+	if err := r.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := r.Store().Snapshot("config-key"); !ok {
+		t.Error("snapshot of an auth the host never lists dropped")
 	}
 	if _, ok := r.Store().Snapshot("gone"); ok {
 		t.Error("snapshot of removed auth kept")

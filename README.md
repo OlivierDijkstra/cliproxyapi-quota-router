@@ -23,7 +23,7 @@ The plugin reads those headers after every request, keeps the quota fields, and 
 
 When the host needs a credential it calls the plugin's `scheduler.pick` with the candidates it considers usable. The plugin scores them and returns one auth ID, or hands the decision back to the host.
 
-The plugin never contacts OpenAI or Anthropic and never reads credential files. Every five minutes it calls `host.auth.list` to learn which auths are disabled or waiting on a retry and to forget auths that were removed.
+The plugin never contacts OpenAI or Anthropic and never reads credential files. Every five minutes it calls `host.auth.list` to learn which auths are disabled or waiting on a retry and to forget auths that were removed. The host lists only file-backed credentials, so API keys from the config file never get that disabled/retry information. The host already filters those out of the candidates when they're cooling down.
 
 The upstream interfaces this relies on, with the source revision they were read from, are in [docs/upstream.md](docs/upstream.md).
 

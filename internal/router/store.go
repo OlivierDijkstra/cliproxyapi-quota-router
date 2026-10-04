@@ -25,6 +25,7 @@ type Store struct {
 	snapshots   map[string]quota.Snapshot
 	probedAt    map[string]time.Time
 	host        map[string]HostAuthState
+	listed      map[string]bool
 	hostAt      time.Time
 	hostErr     string
 	lastRefresh time.Time
@@ -37,6 +38,7 @@ func NewStore(registry *quota.Registry) *Store {
 		snapshots: make(map[string]quota.Snapshot),
 		probedAt:  make(map[string]time.Time),
 		host:      make(map[string]HostAuthState),
+		listed:    make(map[string]bool),
 	}
 }
 
@@ -125,7 +127,9 @@ func (s *Store) HostState(authID string, now time.Time, maxAge time.Duration) (H
 }
 
 // ApplyHostStates replaces the host auth cache and drops snapshots of auths
-// that no longer exist.
+// the host listed before and no longer lists. host.auth.list leaves out
+// config-sourced credentials such as claude-api-key entries, so an auth the
+// host never listed keeps its snapshot.
 func (s *Store) ApplyHostStates(states map[string]HostAuthState, at time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -133,11 +137,15 @@ func (s *Store) ApplyHostStates(states map[string]HostAuthState, at time.Time) {
 	s.hostAt = at
 	s.hostErr = ""
 	s.lastRefresh = at
-	for id := range s.snapshots {
+	for id := range s.listed {
 		if _, ok := states[id]; !ok {
+			delete(s.listed, id)
 			delete(s.snapshots, id)
 			delete(s.probedAt, id)
 		}
+	}
+	for id := range states {
+		s.listed[id] = true
 	}
 }
 
