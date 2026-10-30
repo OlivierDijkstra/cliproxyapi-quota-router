@@ -76,6 +76,24 @@ func TestPickSkipsIneligible(t *testing.T) {
 	}
 }
 
+// Regression: the host marks a credential "error" after any failed request.
+// That is not a quota signal, so the credential is still probed and ranked.
+func TestHostErrorStatusIsNotBlocked(t *testing.T) {
+	r, _ := newTestRouter()
+	cands := codexCandidates("a")
+	cands[0].Status = "error"
+	resp, d := r.Pick(pickReq(cands...))
+	mustSelect(t, resp, d, "a")
+	if d.Candidates[0].State != stateProbe {
+		t.Fatalf("no data, host error: %s (%s), want probe", d.Candidates[0].State, d.Candidates[0].Reason)
+	}
+	observe(r, "a", 82, 3*day)
+	if resp, d = r.Pick(pickReq(cands...)); d.Candidates[0].State != stateEligible {
+		t.Fatalf("live quota, host error: %s (%s), want eligible", d.Candidates[0].State, d.Candidates[0].Reason)
+	}
+	mustSelect(t, resp, d, "a")
+}
+
 func TestHostStateAgesOut(t *testing.T) {
 	r, clock := newTestRouter()
 	observe(r, "a", 90, time.Hour)
@@ -564,14 +582,21 @@ func TestLimitFlagsDoNotRefreshWindows(t *testing.T) {
 	}
 }
 
-func TestStaleDepletedWindowBlocksUntilReset(t *testing.T) {
+func TestStaleDepletedWindowIsReprobedBeforeReset(t *testing.T) {
 	r, clock := newTestRouter()
 	r.ObserveUsage(pluginapi.UsageRecord{AuthID: "a", Provider: "codex",
 		ResponseHeaders: codexHeaders(win{used: 10, resetIn: 2 * time.Hour}, &win{used: 100, resetIn: 2 * day})})
-	elapsed := r.Config().StaleAfter + time.Hour
-	clock.Advance(elapsed)
+	clock.Advance(r.Config().StaleAfter - time.Minute)
 	primaryOnly(r)
 	if _, d := r.Pick(pickReq(codexCandidates("a")...)); d.Candidates[0].State != stateBlocked {
+		t.Fatalf("fresh depleted weekly window: %s (%s)", d.Candidates[0].State, d.Candidates[0].Reason)
+	}
+	// Once the empty reading is stale it no longer blocks, even though its
+	// reset is days away; the credential is re-probed instead.
+	elapsed := r.Config().StaleAfter + time.Hour
+	clock.Advance(time.Hour + time.Minute)
+	primaryOnly(r)
+	if _, d := r.Pick(pickReq(codexCandidates("a")...)); d.Candidates[0].State != stateProbe || !strings.Contains(d.Candidates[0].Reason, "stale") {
 		t.Fatalf("old depleted weekly window with future reset: %s (%s)", d.Candidates[0].State, d.Candidates[0].Reason)
 	}
 	// After the weekly reset its fullness is known as of the reset itself.
@@ -587,6 +612,29 @@ func TestStaleDepletedWindowBlocksUntilReset(t *testing.T) {
 	primaryOnly(r)
 	if _, d = r.Pick(pickReq(codexCandidates("a")...)); d.Candidates[0].State != stateProbe {
 		t.Fatalf("refill should age out: %s (%s)", d.Candidates[0].State, d.Candidates[0].Reason)
+	}
+}
+
+// Regression: an old empty weekly reading kept blocking an account whose live
+// responses showed 82% left, until the weekly reset days later.
+func TestOldEmptyReadingDoesNotBlockLiveQuota(t *testing.T) {
+	r, clock := newTestRouter()
+	r.ObserveUsage(pluginapi.UsageRecord{AuthID: "a", Provider: "codex",
+		ResponseHeaders: codexHeaders(win{used: 0, resetIn: 5 * time.Hour}, &win{used: 100, resetIn: 5 * day})})
+	for elapsed := time.Duration(0); elapsed <= r.Config().StaleAfter; elapsed += 10 * time.Minute {
+		clock.Advance(10 * time.Minute)
+		usage(r, "a", map[string]string{"X-Codex-Primary-Used-Percent": "18", "X-Codex-Primary-Reset-After-Seconds": "7200"})
+	}
+	resp, d := r.Pick(pickReq(codexCandidates("a")...))
+	mustSelect(t, resp, d, "a")
+	if d.Candidates[0].State == stateBlocked {
+		t.Fatalf("old empty reading still blocks: %s", d.Candidates[0].Reason)
+	}
+	// Once the probe reports the weekly window again, the account ranks normally.
+	usage(r, "a", map[string]string{"X-Codex-Primary-Used-Percent": "18", "X-Codex-Primary-Reset-After-Seconds": "7200",
+		"X-Codex-Secondary-Used-Percent": "18", "X-Codex-Secondary-Reset-After-Seconds": "400000"})
+	if _, d = r.Pick(pickReq(codexCandidates("a")...)); d.Candidates[0].State != stateEligible {
+		t.Fatalf("after live report: %s (%s)", d.Candidates[0].State, d.Candidates[0].Reason)
 	}
 }
 

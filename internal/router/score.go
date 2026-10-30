@@ -63,10 +63,11 @@ func creditResets(windows []quota.Window, now time.Time) []window {
 	return out
 }
 
-// assess evaluates a snapshot. staleAfter bounds how long a depleted window
-// without a reset time, or a LimitReached flag without a matching depleted
-// window, keeps the credential blocked, and marks windows too old to rank on.
-// A depleted window with a future reset keeps blocking however old it is.
+// assess evaluates a snapshot. Freshness is checked before exhaustion: a window
+// or LimitReached flag reported more than staleAfter ago marks the snapshot
+// stale and never blocks, whatever reset time it carried. An old empty reading
+// only says the credential was out of quota then; it is re-probed instead of
+// being excluded until a reset that may already have been superseded.
 func assess(snap quota.Snapshot, now time.Time, headroom float64, horizon, staleAfter time.Duration) assessment {
 	observed := func(at time.Time) time.Time {
 		if at.IsZero() {
@@ -74,12 +75,14 @@ func assess(snap quota.Snapshot, now time.Time, headroom float64, horizon, stale
 		}
 		return at
 	}
+	fresh := func(at time.Time) bool { return now.Sub(observed(at)) <= staleAfter }
 	windows := creditResets(snap.Windows, now)
 	a := assessment{Remaining: 1}
 	for _, w := range windows {
 		a.Remaining = math.Min(a.Remaining, w.remaining)
-		if now.Sub(observed(w.observedAt)) > staleAfter {
+		if !fresh(w.observedAt) {
 			a.Stale = true
+			continue
 		}
 		if depleted(w.remaining, headroom) {
 			until := w.resetAt
@@ -91,13 +94,15 @@ func assess(snap quota.Snapshot, now time.Time, headroom float64, horizon, stale
 			}
 		}
 	}
-	if snap.LimitReached {
-		// When a depleted window explains the flag, that window's reset already
-		// governs the block above. Otherwise hold the block until the reset the
-		// provider gave with the flag, or until the flag is stale.
+	if snap.LimitReached && !fresh(snap.LimitObservedAt) {
+		a.Stale = true
+	} else if snap.LimitReached {
+		// When a fresh depleted window explains the flag, that window's reset
+		// already governs the block above. Otherwise hold the block until the
+		// reset the provider gave with the flag, or until the flag is stale.
 		explained := false
 		for _, w := range snap.Windows {
-			explained = explained || depleted(w.Remaining, headroom)
+			explained = explained || (fresh(w.ObservedAt) && depleted(w.Remaining, headroom))
 		}
 		if !explained {
 			until := snap.LimitUntil
