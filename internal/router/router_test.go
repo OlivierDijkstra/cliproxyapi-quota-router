@@ -529,6 +529,22 @@ func TestBooleanOnlyHeaders(t *testing.T) {
 	}
 }
 
+// Codex refreshes the limit flag only when a response carries a flag header.
+// Once stale, an old flag must not keep healthy, fresh windows from ranking.
+func TestStaleLimitFlagDoesNotOutliveFreshWindows(t *testing.T) {
+	r, clock := newTestRouter()
+	observe(r, "c", 80, 3*day)
+	clock.Advance(time.Second)
+	usage(r, "c", map[string]string{"X-Codex-Allowed": "false"})
+	for elapsed := time.Duration(0); elapsed <= r.Config().StaleAfter; elapsed += 10 * time.Minute {
+		clock.Advance(10 * time.Minute)
+		observe(r, "c", 80, 3*day)
+	}
+	if _, d := r.Pick(pickReq(codexCandidates("c")...)); d.Candidates[0].State != stateEligible {
+		t.Fatalf("stale flag beside fresh windows: %s (%s), want eligible", d.Candidates[0].State, d.Candidates[0].Reason)
+	}
+}
+
 func TestRecoveryAfterResetWithPartialUpdates(t *testing.T) {
 	r, clock := newTestRouter()
 	r.ObserveUsage(pluginapi.UsageRecord{AuthID: "a", Provider: "codex",
@@ -625,11 +641,18 @@ func TestOldEmptyReadingDoesNotBlockLiveQuota(t *testing.T) {
 		clock.Advance(10 * time.Minute)
 		usage(r, "a", map[string]string{"X-Codex-Primary-Used-Percent": "18", "X-Codex-Primary-Reset-After-Seconds": "7200"})
 	}
-	resp, d := r.Pick(pickReq(codexCandidates("a")...))
+	observe(r, "b", 60, 3*day)
+	resp, d := r.Pick(pickReq(codexCandidates("a", "b")...))
 	mustSelect(t, resp, d, "a")
 	if d.Candidates[0].State == stateBlocked {
 		t.Fatalf("old empty reading still blocks: %s", d.Candidates[0].Reason)
 	}
+	// A primary-only probe reply leaves the weekly window stale. It must not end
+	// the probe early, or a re-probe would win every pick over b.
+	clock.Advance(time.Second)
+	usage(r, "a", map[string]string{"X-Codex-Primary-Used-Percent": "18", "X-Codex-Primary-Reset-After-Seconds": "7200"})
+	resp, d = r.Pick(pickReq(codexCandidates("a", "b")...))
+	mustSelect(t, resp, d, "b")
 	// Once the probe reports the weekly window again, the account ranks normally.
 	usage(r, "a", map[string]string{"X-Codex-Primary-Used-Percent": "18", "X-Codex-Primary-Reset-After-Seconds": "7200",
 		"X-Codex-Secondary-Used-Percent": "18", "X-Codex-Secondary-Reset-After-Seconds": "400000"})

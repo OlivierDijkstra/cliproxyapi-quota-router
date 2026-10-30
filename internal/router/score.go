@@ -64,10 +64,11 @@ func creditResets(windows []quota.Window, now time.Time) []window {
 }
 
 // assess evaluates a snapshot. Freshness is checked before exhaustion: a window
-// or LimitReached flag reported more than staleAfter ago marks the snapshot
-// stale and never blocks, whatever reset time it carried. An old empty reading
-// only says the credential was out of quota then; it is re-probed instead of
-// being excluded until a reset that may already have been superseded.
+// reported more than staleAfter ago marks the snapshot stale and never blocks,
+// whatever reset time it carried, and a LimitReached flag that old is ignored.
+// An old empty reading only says the credential was out of quota then; it is
+// re-probed instead of being excluded until a reset that may already have been
+// superseded.
 func assess(snap quota.Snapshot, now time.Time, headroom float64, horizon, staleAfter time.Duration) assessment {
 	observed := func(at time.Time) time.Time {
 		if at.IsZero() {
@@ -94,9 +95,7 @@ func assess(snap quota.Snapshot, now time.Time, headroom float64, horizon, stale
 			}
 		}
 	}
-	if snap.LimitReached && !fresh(snap.LimitObservedAt) {
-		a.Stale = true
-	} else if snap.LimitReached {
+	if snap.LimitReached && fresh(snap.LimitObservedAt) {
 		// When a fresh depleted window explains the flag, that window's reset
 		// already governs the block above. Otherwise hold the block until the
 		// reset the provider gave with the flag, or until the flag is stale.
