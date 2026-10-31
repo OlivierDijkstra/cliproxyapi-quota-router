@@ -105,7 +105,7 @@ func assess(snap quota.Snapshot, now time.Time, headroom float64, horizon, stale
 		flaggedAt := observed(snap.LimitObservedAt)
 		explained := false
 		for _, w := range snap.Windows {
-			stillDepleted := w.ResetAt.IsZero() || w.ResetAt.After(flaggedAt)
+			stillDepleted := w.ResetAt.IsZero() || !w.ResetAt.Before(flaggedAt)
 			explained = explained || (fresh(w.ObservedAt) && depleted(w.Remaining, headroom) && stillDepleted)
 		}
 		if !explained {

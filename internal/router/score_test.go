@@ -252,6 +252,14 @@ func TestLimitFlagAfterWindowResetStillBlocks(t *testing.T) {
 		t.Fatalf("flag reported with the depleted window still blocks after its reset: until %v", a.BlockedUntil)
 	}
 
+	// A reset at the very moment of the flag, e.g. Reset-After-Seconds: 0, still
+	// counts as reported together.
+	snap.Windows[0].ResetAt = t0
+	if a := assess(snap, t0, cfg.MinimumHeadroom, cfg.MinResetHorizon, cfg.StaleAfter); !a.BlockedUntil.IsZero() {
+		t.Fatalf("flag with a window resetting at the same instant blocks: until %v", a.BlockedUntil)
+	}
+	snap.Windows[0].ResetAt = t0.Add(5 * time.Minute)
+
 	// Flag reported after the window's reset: it blocks on its own.
 	snap.LimitObservedAt = t0.Add(10 * time.Minute)
 	now = snap.LimitObservedAt
