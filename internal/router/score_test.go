@@ -233,3 +233,30 @@ func TestStalenessIsCheckedBeforeExhaustion(t *testing.T) {
 		t.Fatalf("fresh limit flag beside a stale empty window: blocked until %v, want %v", a.BlockedUntil, want)
 	}
 }
+
+// Regression: a depleted window that refilled before a newer limit flag was
+// reported must not explain the flag away, while a flag reported together with
+// the depleted window still lifts at that window's reset.
+func TestLimitFlagAfterWindowResetStillBlocks(t *testing.T) {
+	cfg := DefaultConfig()
+	snap := quota.Snapshot{
+		Provider:   "codex",
+		ObservedAt: t0,
+		Windows:    []quota.Window{{Name: "primary", Remaining: 0, ResetAt: t0.Add(5 * time.Minute), ObservedAt: t0}},
+	}
+
+	// Flag and depleted window together: the window's reset lifts the block.
+	snap.LimitReached, snap.LimitObservedAt = true, t0
+	now := t0.Add(6 * time.Minute)
+	if a := assess(snap, now, cfg.MinimumHeadroom, cfg.MinResetHorizon, cfg.StaleAfter); !a.BlockedUntil.IsZero() {
+		t.Fatalf("flag reported with the depleted window still blocks after its reset: until %v", a.BlockedUntil)
+	}
+
+	// Flag reported after the window's reset: it blocks on its own.
+	snap.LimitObservedAt = t0.Add(10 * time.Minute)
+	now = snap.LimitObservedAt
+	a := assess(snap, now, cfg.MinimumHeadroom, cfg.MinResetHorizon, cfg.StaleAfter)
+	if want := now.Add(cfg.StaleAfter); !a.BlockedUntil.Equal(want) {
+		t.Fatalf("flag after the window refilled: blocked until %v, want %v", a.BlockedUntil, want)
+	}
+}
