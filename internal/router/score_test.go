@@ -214,3 +214,22 @@ func TestStaleIsJudgedPerWindow(t *testing.T) {
 		t.Fatal("fresh windows reported stale")
 	}
 }
+
+// Regression: freshness is judged before exhaustion. A stale empty window with
+// a future reset must not block, and must not "explain" a fresh limit flag
+// away either.
+func TestStalenessIsCheckedBeforeExhaustion(t *testing.T) {
+	cfg := DefaultConfig()
+	now := t0.Add(cfg.StaleAfter + time.Minute)
+	snap := single(0, 5*day)
+	a := assess(snap, now, cfg.MinimumHeadroom, cfg.MinResetHorizon, cfg.StaleAfter)
+	if !a.Stale || !a.BlockedUntil.IsZero() {
+		t.Fatalf("stale empty window: stale=%v blocked until %v, want stale and unblocked", a.Stale, a.BlockedUntil)
+	}
+
+	snap.LimitReached, snap.LimitObservedAt = true, now
+	a = assess(snap, now, cfg.MinimumHeadroom, cfg.MinResetHorizon, cfg.StaleAfter)
+	if want := now.Add(cfg.StaleAfter); !a.BlockedUntil.Equal(want) {
+		t.Fatalf("fresh limit flag beside a stale empty window: blocked until %v, want %v", a.BlockedUntil, want)
+	}
+}

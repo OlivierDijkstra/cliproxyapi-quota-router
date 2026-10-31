@@ -21,7 +21,8 @@ plugins:
       # How often to re-read host auth state (disabled flags, retry times).
       refresh_interval: 5m
       # A credential with any quota window older than this is refreshed by routing
-      # one request to it.
+      # one request to it. An out-of-quota report older than this no longer
+      # blocks the credential, even if its reset is still ahead.
       stale_after: 30m
       # Minimum gap between two probe picks of the same credential.
       probe_interval: 1m

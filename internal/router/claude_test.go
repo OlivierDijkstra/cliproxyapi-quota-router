@@ -170,14 +170,16 @@ func TestClaudeCredentialRejectionHonorsUnifiedReset(t *testing.T) {
 	if !resp.Reject || resp.RejectCode != RejectCode {
 		t.Fatalf("resp = %+v (%s)", resp, d.Reason)
 	}
-	// The block outlives stale_after because Anthropic named the reset time.
-	clock.Advance(90 * time.Minute)
+	// The block holds while the rejection is fresh, past the window data's age.
+	clock.Advance(r.Config().StaleAfter - 2*time.Minute)
 	if resp, _ := r.Pick(claudePick(claudeCandidates("x")...)); !resp.Reject {
-		t.Fatalf("block lifted before the unified reset: %+v", resp)
+		t.Fatalf("block lifted while the rejection is fresh: %+v", resp)
 	}
-	clock.Advance(31 * time.Minute)
-	if _, d := r.Pick(claudePick(claudeCandidates("x")...)); candidate(t, d, "x").State == stateBlocked {
-		t.Fatalf("still blocked after the unified reset: %+v", d)
+	// Once the rejection is stale it no longer blocks, even before the named
+	// reset: the account is re-probed to learn its current quota.
+	clock.Advance(3 * time.Minute)
+	if _, d := r.Pick(claudePick(claudeCandidates("x")...)); candidate(t, d, "x").State != stateProbe {
+		t.Fatalf("stale rejection should be re-probed: %+v", d)
 	}
 }
 

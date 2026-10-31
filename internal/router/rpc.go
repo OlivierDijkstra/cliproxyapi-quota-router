@@ -162,7 +162,7 @@ func (h *Handler) registration(cfg Config) registration {
 				field("fallback", pluginapi.ConfigFieldTypeEnum, "Strategy when quota data cannot rank candidates. none leaves the pick to the host only while no candidate is excluded.",
 					string(FallbackRoundRobin), string(FallbackFillFirst), string(FallbackNone)),
 				field("refresh_interval", pluginapi.ConfigFieldTypeString, "How often to sync host auth state, e.g. 5m."),
-				field("stale_after", pluginapi.ConfigFieldTypeString, "A credential with any quota window reported longer ago than this is re-probed, e.g. 30m."),
+				field("stale_after", pluginapi.ConfigFieldTypeString, "A credential with any quota window reported longer ago than this is re-probed, even if that report showed it out of quota, e.g. 30m."),
 				field("probe_interval", pluginapi.ConfigFieldTypeString, "Minimum gap between probe picks of one credential without data, e.g. 1m."),
 				field("min_reset_horizon", pluginapi.ConfigFieldTypeString, "Floor for time-to-reset in scoring so near resets cannot dominate, e.g. 1h."),
 				field("switch_margin", pluginapi.ConfigFieldTypeNumber, "Keep the current credential unless another scores this fraction higher. Default 0.15."),

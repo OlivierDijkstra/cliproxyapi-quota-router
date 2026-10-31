@@ -236,9 +236,12 @@ func (r *Router) classify(c pluginapi.SchedulerAuthCandidate, now time.Time, cfg
 		v.State, v.Reason = stateBlocked, reason
 		return v
 	}
-	switch strings.ToLower(c.Status) {
-	case "disabled", "error":
-		return block("host status " + strings.ToLower(c.Status))
+	// Only "disabled" excludes a credential. The host sets "error" after any
+	// failed request and keeps it until the next success, so an error status
+	// says nothing about quota; the host's own cooldown is enforced through
+	// NextRetryAfter below and by its per-model filtering.
+	if strings.EqualFold(c.Status, "disabled") {
+		return block("host status disabled")
 	}
 	// The host filters cooled-down auths per model before calling us. The cached
 	// host list only adds signals that cannot go stale: disabled, and retry times.

@@ -74,10 +74,27 @@ func (s *Store) Observe(authID, provider string, headers http.Header, at time.Ti
 		}
 	}
 	s.snapshots[authID] = merged
-	// Only window data ends a probe. A bare limit flag says nothing about how
-	// much quota is left, so the credential stays on the probe schedule.
-	if len(next.Windows) > 0 {
+	// Only window data ends a probe, and only when it covers every known window.
+	// A bare limit flag says nothing about how much quota is left, and a reply
+	// that leaves an old window unreported leaves it stale, so either way the
+	// credential stays on the probe_interval schedule instead of being probed
+	// again on the next request.
+	if len(next.Windows) > 0 && coversWindows(next, merged) {
 		delete(s.probedAt, authID)
+	}
+	return true
+}
+
+// coversWindows reports whether next reported every window known in merged.
+func coversWindows(next, merged quota.Snapshot) bool {
+	for _, known := range merged.Windows {
+		found := false
+		for _, w := range next.Windows {
+			found = found || w.Name == known.Name
+		}
+		if !found {
+			return false
+		}
 	}
 	return true
 }
