@@ -101,11 +101,13 @@ func assess(snap quota.Snapshot, now time.Time, headroom float64, horizon, stale
 		// reset the provider gave with the flag, or until the flag is stale.
 		// A window explains the flag only if it was still depleted when the flag
 		// was reported: a flag that arrives after the window refilled is new
-		// information the window's reset cannot lift.
+		// information the window's reset cannot lift. A window reported with the
+		// flag or later counts as depleted then, since reset headers have
+		// whole-second precision and can fall just before the flag's time.
 		flaggedAt := observed(snap.LimitObservedAt)
 		explained := false
 		for _, w := range snap.Windows {
-			stillDepleted := w.ResetAt.IsZero() || !w.ResetAt.Before(flaggedAt)
+			stillDepleted := w.ResetAt.IsZero() || !w.ResetAt.Before(flaggedAt) || !observed(w.ObservedAt).Before(flaggedAt)
 			explained = explained || (fresh(w.ObservedAt) && depleted(w.Remaining, headroom) && stillDepleted)
 		}
 		if !explained {

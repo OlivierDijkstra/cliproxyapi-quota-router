@@ -258,6 +258,12 @@ func TestLimitFlagAfterWindowResetStillBlocks(t *testing.T) {
 	if a := assess(snap, t0, cfg.MinimumHeadroom, cfg.MinResetHorizon, cfg.StaleAfter); !a.BlockedUntil.IsZero() {
 		t.Fatalf("flag with a window resetting at the same instant blocks: until %v", a.BlockedUntil)
 	}
+	// Codex's Reset-At has whole seconds, so in the same response the reset can
+	// fall just before the flag's sub-second time.
+	snap.Windows[0].ResetAt = t0.Add(-400 * time.Millisecond)
+	if a := assess(snap, t0, cfg.MinimumHeadroom, cfg.MinResetHorizon, cfg.StaleAfter); !a.BlockedUntil.IsZero() {
+		t.Fatalf("flag with a window from the same response resetting just before it blocks: until %v", a.BlockedUntil)
+	}
 	snap.Windows[0].ResetAt = t0.Add(5 * time.Minute)
 
 	// Flag reported after the window's reset: it blocks on its own.
