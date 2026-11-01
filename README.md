@@ -25,6 +25,8 @@ plugins:
       session_affinity_ttl: 1h
 ```
 
+To install through CLIProxyAPI's plugin store instead, add `https://raw.githubusercontent.com/OlivierDijkstra/cliproxyapi-quota-router/main/store/registry.json` to `plugins.store-sources` and install `cliproxyapi-quota-router` from the store.
+
 `smart` scores the quota left above the minimum headroom against time until reset; `headroom` instead chooses the account with the most quota left. At or above 2% remaining is allowed; below 2% is skipped. A session binding is refreshed on each request and changes if that account is blocked. [All options and defaults](config.example.yaml).
 
 **Paid-usage warning:** If Anthropic extra usage is enabled, an exhausted Claude account remains usable. In this release, session affinity can continue sending that session to the account even when another has subscription quota, potentially incurring charges. Disable Anthropic extra usage or set `session_affinity: false` until this is fixed.
