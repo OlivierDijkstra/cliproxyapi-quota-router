@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "plugins": [
+    {
+      "id": "cliproxyapi-quota-router",
+      "name": "CLIProxyAPI Quota Router",
+      "description": "Quota-aware scheduler for Codex and Claude subscription accounts: ranks credentials by usable quota at risk of expiring and skips nearly empty ones.",
+      "author": "OlivierDijkstra",
+      "version": "0.1.1-rc.1",
+      "repository": "https://github.com/OlivierDijkstra/cliproxyapi-quota-router",
+      "homepage": "https://github.com/OlivierDijkstra/cliproxyapi-quota-router",
+      "logo": "https://raw.githubusercontent.com/OlivierDijkstra/cliproxyapi-quota-router/main/assets/icon.svg",
+      "license": "MIT",
+      "tags": ["Scheduler", "Codex", "Claude"],
+      "install": { "type": "github-release" }
+    }
+  ]
+}
